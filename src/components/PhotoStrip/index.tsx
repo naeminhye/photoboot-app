@@ -1,4 +1,3 @@
-// components/PhotoStrip/index.tsx
 import React, {
   useRef,
   useEffect,
@@ -49,24 +48,23 @@ const PhotoStrip = forwardRef<HTMLDivElement, PhotoStripProps>(
   ) => {
     const canvasRef = useRef<HTMLCanvasElement>(null);
     const [selectedSticker, setSelectedSticker] = useState<number | null>(null);
-    const [dragging, setDragging] = useState<
-      "move" | "resize" | "rotate" | null
-    >(null);
+    const [dragging, setDragging] = useState<"move" | "resize" | "rotate" | null>(null);
     const [startX, setStartX] = useState(0);
     const [startY, setStartY] = useState(0);
     const [resizeHandle, setResizeHandle] = useState<number | null>(null);
 
     const HANDLE_SIZE = 10;
+    const SCALE_FACTOR = 2;
 
     const currentLayout = LAYOUTS[layout];
     const maxPhotos = currentLayout.maxPhotos;
-    const stripWidth = currentLayout.width;
-    const stripHeight = currentLayout.height;
-    const PADDING_TOP = currentLayout.paddings?.top || 0.15 * 96;
-    const PADDING_LEFT = currentLayout.paddings?.left || 0.15 * 96;
-    const PADDING_BOTTOM = currentLayout.paddings?.bottom || 0.15 * 96;
-    const PADDING_RIGHT = currentLayout.paddings?.right || 0.15 * 96;
-    const GAP = currentLayout.gap || 0.1 * 96;
+    const stripWidth = currentLayout.width * SCALE_FACTOR;
+    const stripHeight = currentLayout.height * SCALE_FACTOR;
+    const PADDING_TOP = (currentLayout.paddings?.top || 0.15 * 96) * SCALE_FACTOR;
+    const PADDING_LEFT = (currentLayout.paddings?.left || 0.15 * 96) * SCALE_FACTOR;
+    const PADDING_BOTTOM = (currentLayout.paddings?.bottom || 0.15 * 96) * SCALE_FACTOR;
+    const PADDING_RIGHT = (currentLayout.paddings?.right || 0.15 * 96) * SCALE_FACTOR;
+    const GAP = (currentLayout.gap || 0.1 * 96) * SCALE_FACTOR;
 
     const isGrid = currentLayout.arrangement === "grid";
     const arrangement = currentLayout.arrangement;
@@ -78,10 +76,7 @@ const PhotoStrip = forwardRef<HTMLDivElement, PhotoStripProps>(
         height = 0;
       if (arrangement === "grid") {
         width =
-          (stripWidth -
-            PADDING_LEFT -
-            PADDING_RIGHT -
-            (gridColumns - 1) * GAP) /
+          (stripWidth - PADDING_LEFT - PADDING_RIGHT - (gridColumns - 1) * GAP) /
           gridColumns;
         height =
           (stripHeight - PADDING_TOP - PADDING_BOTTOM - (gridRows - 1) * GAP) /
@@ -159,13 +154,12 @@ const PhotoStrip = forwardRef<HTMLDivElement, PhotoStripProps>(
 
         const croppedImg = new Image();
         croppedImg.onload = () => callback(croppedImg);
-        croppedImg.src = canvas.toDataURL("image/jpeg");
+        croppedImg.src = canvas.toDataURL("image/jpeg", 1.0);
       };
       img.src = src;
     };
 
     useEffect(() => {
-      // Preload background image
       if (backgroundImage) {
         const img = new Image();
         img.src = backgroundImage;
@@ -178,7 +172,6 @@ const PhotoStrip = forwardRef<HTMLDivElement, PhotoStripProps>(
         redrawCanvas();
       }
 
-      // Preload foreground image
       if (foregroundImage) {
         const img = new Image();
         img.src = foregroundImage;
@@ -191,23 +184,32 @@ const PhotoStrip = forwardRef<HTMLDivElement, PhotoStripProps>(
         redrawCanvas();
       }
 
-      // Crop & preload photos
       photoImages.current = [];
-      photos.forEach((photo, index) => {
-        autoCropImage(photo.url, (croppedImg) => {
-          photoImages.current[index] = croppedImg;
-          if (photoImages.current.length === photos.length) {
-            while (photoImages.current.length < maxPhotos) {
-              photoImages.current.push(null);
+      if (photos.length === 1 && photos[0].id === "combined") {
+        // Step 3: Chỉ có ảnh combine
+        const img = new Image();
+        img.src = photos[0].url;
+        img.onload = () => {
+          photoImages.current = [img];
+          redrawCanvas();
+        };
+      } else {
+        // Step 2: Nhiều ảnh riêng lẻ
+        photos.forEach((photo, index) => {
+          autoCropImage(photo.url, (croppedImg) => {
+            photoImages.current[index] = croppedImg;
+            if (photoImages.current.length === photos.length) {
+              while (photoImages.current.length < maxPhotos) {
+                photoImages.current.push(null);
+              }
+              redrawCanvas();
             }
-            redrawCanvas();
-          }
+          });
         });
-      });
-
-      if (photos.length === 0) {
-        photoImages.current = Array(maxPhotos).fill(null);
-        redrawCanvas();
+        if (photos.length === 0) {
+          photoImages.current = Array(maxPhotos).fill(null);
+          redrawCanvas();
+        }
       }
     }, [
       photos,
@@ -229,25 +231,85 @@ const PhotoStrip = forwardRef<HTMLDivElement, PhotoStripProps>(
 
       canvas.width = stripWidth;
       canvas.height = stripHeight;
+      ctx.imageSmoothingEnabled = true;
+      ctx.imageSmoothingQuality = "high";
+
       ctx.clearRect(0, 0, canvas.width, canvas.height);
 
-      // 1. Draw Background
-      if (backgroundImg.current) {
-        ctx.drawImage(backgroundImg.current, 0, 0, canvas.width, canvas.height);
+      // Step 3: Chỉ vẽ ảnh combine full kích thước
+      if (photos.length === 1 && photos[0].id === "combined") {
+        const combinedImg = photoImages.current[0];
+        if (combinedImg) {
+          ctx.drawImage(combinedImg, 0, 0, stripWidth, stripHeight);
+        }
       } else {
-        ctx.fillStyle = frameColor;
-        ctx.fillRect(0, 0, canvas.width, canvas.height);
-      }
+        // Step 2: Vẽ background, photos, foreground như cũ
+        if (backgroundImg.current) {
+          ctx.drawImage(backgroundImg.current, 0, 0, canvas.width, canvas.height);
+        } else {
+          ctx.fillStyle = frameColor;
+          ctx.fillRect(0, 0, canvas.width, canvas.height);
+        }
 
-      // 2. Draw Photos or Placeholder
-      if (isGrid) {
-        for (let row = 0; row < gridRows; row++) {
-          for (let col = 0; col < gridColumns; col++) {
-            const index = row * gridColumns + col;
-            if (index >= maxPhotos) break;
+        if (isGrid) {
+          for (let row = 0; row < gridRows; row++) {
+            for (let col = 0; col < gridColumns; col++) {
+              const index = row * gridColumns + col;
+              if (index >= maxPhotos) break;
 
-            const xPosition = PADDING_LEFT + col * (photoSize.width + GAP);
-            const yPosition = PADDING_TOP + row * (photoSize.height + GAP);
+              const xPosition = PADDING_LEFT + col * (photoSize.width + GAP);
+              const yPosition = PADDING_TOP + row * (photoSize.height + GAP);
+              const photoImg = photoImages.current[index];
+
+              if (photoImg) {
+                ctx.drawImage(
+                  photoImg,
+                  xPosition,
+                  yPosition,
+                  photoSize.width,
+                  photoSize.height
+                );
+              } else {
+                // Place holder
+                ctx.fillStyle = "#C8C8C8";
+                ctx.fillRect(
+                  xPosition,
+                  yPosition,
+                  photoSize.width,
+                  photoSize.height
+                );
+                ctx.strokeStyle = "#999";
+                ctx.lineWidth = 2 * SCALE_FACTOR;
+                ctx.setLineDash([5 * SCALE_FACTOR, 5 * SCALE_FACTOR]);
+                ctx.strokeRect(
+                  xPosition,
+                  yPosition,
+                  photoSize.width,
+                  photoSize.height
+                );
+                ctx.setLineDash([]);
+                ctx.fillStyle = "#999";
+                ctx.font = `${40 * SCALE_FACTOR}px Arial`;
+                ctx.textAlign = "center";
+                ctx.textBaseline = "middle";
+                ctx.fillText(
+                  "+",
+                  xPosition + photoSize.width / 2,
+                  yPosition + photoSize.height / 2
+                );
+              }
+            }
+          }
+        } else {
+          for (let index = 0; index < maxPhotos; index++) {
+            const xPosition =
+              arrangement === "vertical"
+                ? PADDING_LEFT
+                : PADDING_LEFT + index * (photoSize.width + GAP);
+            const yPosition =
+              arrangement === "vertical"
+                ? PADDING_TOP + index * (photoSize.height + GAP)
+                : PADDING_TOP;
             const photoImg = photoImages.current[index];
 
             if (photoImg) {
@@ -259,9 +321,16 @@ const PhotoStrip = forwardRef<HTMLDivElement, PhotoStripProps>(
                 photoSize.height
               );
             } else {
+              ctx.fillStyle = "#C8C8C8";
+              ctx.fillRect(
+                xPosition,
+                yPosition,
+                photoSize.width,
+                photoSize.height
+              );
               ctx.strokeStyle = "#999";
-              ctx.lineWidth = 2;
-              ctx.setLineDash([5, 5]);
+              ctx.lineWidth = 2 * SCALE_FACTOR;
+              ctx.setLineDash([5 * SCALE_FACTOR, 5 * SCALE_FACTOR]);
               ctx.strokeRect(
                 xPosition,
                 yPosition,
@@ -270,7 +339,7 @@ const PhotoStrip = forwardRef<HTMLDivElement, PhotoStripProps>(
               );
               ctx.setLineDash([]);
               ctx.fillStyle = "#999";
-              ctx.font = "40px Arial";
+              ctx.font = `${40 * SCALE_FACTOR}px Arial`;
               ctx.textAlign = "center";
               ctx.textBaseline = "middle";
               ctx.fillText(
@@ -281,81 +350,38 @@ const PhotoStrip = forwardRef<HTMLDivElement, PhotoStripProps>(
             }
           }
         }
-      } else {
-        for (let index = 0; index < maxPhotos; index++) {
-          const xPosition =
-            arrangement === "vertical"
-              ? PADDING_LEFT
-              : PADDING_LEFT + index * (photoSize.width + GAP);
-          const yPosition =
-            arrangement === "vertical"
-              ? PADDING_TOP + index * (photoSize.height + GAP)
-              : PADDING_TOP;
-          const photoImg = photoImages.current[index];
 
-          if (photoImg) {
-            ctx.drawImage(
-              photoImg,
-              xPosition,
-              yPosition,
-              photoSize.width,
-              photoSize.height
-            );
-          } else {
-            ctx.strokeStyle = "#999";
-            ctx.lineWidth = 2;
-            ctx.setLineDash([5, 5]);
-            ctx.strokeRect(
-              xPosition,
-              yPosition,
-              photoSize.width,
-              photoSize.height
-            );
-            ctx.setLineDash([]);
-            ctx.fillStyle = "#999";
-            ctx.font = "40px Arial";
-            ctx.textAlign = "center";
-            ctx.textBaseline = "middle";
-            ctx.fillText(
-              "+",
-              xPosition + photoSize.width / 2,
-              yPosition + photoSize.height / 2
-            );
-          }
+        if (foregroundImg.current) {
+          ctx.drawImage(foregroundImg.current, 0, 0, canvas.width, canvas.height);
         }
       }
 
-      // 3. Draw Foreground
-      if (foregroundImg.current) {
-        ctx.drawImage(foregroundImg.current, 0, 0, canvas.width, canvas.height);
-      }
-
-      // 4. Draw Stickers
+      // Vẽ stickers
       stickers.forEach((sticker) => {
         ctx.save();
-        ctx.translate(sticker.x, sticker.y);
+        ctx.translate(sticker.x * SCALE_FACTOR, sticker.y * SCALE_FACTOR);
         ctx.rotate((sticker.rotation * Math.PI) / 180);
         ctx.drawImage(
           sticker.image,
-          -sticker.width / 2,
-          -sticker.height / 2,
-          sticker.width,
-          sticker.height
+          (-sticker.width * SCALE_FACTOR) / 2,
+          (-sticker.height * SCALE_FACTOR) / 2,
+          sticker.width * SCALE_FACTOR,
+          sticker.height * SCALE_FACTOR
         );
         ctx.restore();
 
         if (selectedSticker === sticker.id) {
           ctx.save();
-          ctx.translate(sticker.x, sticker.y);
+          ctx.translate(sticker.x * SCALE_FACTOR, sticker.y * SCALE_FACTOR);
           ctx.rotate((sticker.rotation * Math.PI) / 180);
 
           ctx.strokeStyle = "blue";
-          ctx.lineWidth = 2;
+          ctx.lineWidth = 2 * SCALE_FACTOR;
           ctx.strokeRect(
-            -sticker.width / 2,
-            -sticker.height / 2,
-            sticker.width,
-            sticker.height
+            (-sticker.width * SCALE_FACTOR) / 2,
+            (-sticker.height * SCALE_FACTOR) / 2,
+            sticker.width * SCALE_FACTOR,
+            sticker.height * SCALE_FACTOR
           );
 
           ctx.fillStyle = "white";
@@ -366,47 +392,51 @@ const PhotoStrip = forwardRef<HTMLDivElement, PhotoStripProps>(
             [sticker.width / 2, sticker.height / 2],
             [-sticker.width / 2, sticker.height / 2],
           ];
-          handles.forEach(([x, y]) => {
+          handles.forEach(([x, y], index) => {
             ctx.fillRect(
-              x - HANDLE_SIZE / 2,
-              y - HANDLE_SIZE / 2,
-              HANDLE_SIZE,
-              HANDLE_SIZE
+              x * SCALE_FACTOR - (HANDLE_SIZE * SCALE_FACTOR) / 2,
+              y * SCALE_FACTOR - (HANDLE_SIZE * SCALE_FACTOR) / 2,
+              HANDLE_SIZE * SCALE_FACTOR,
+              HANDLE_SIZE * SCALE_FACTOR
             );
             ctx.strokeRect(
-              x - HANDLE_SIZE / 2,
-              y - HANDLE_SIZE / 2,
-              HANDLE_SIZE,
-              HANDLE_SIZE
+              x * SCALE_FACTOR - (HANDLE_SIZE * SCALE_FACTOR) / 2,
+              y * SCALE_FACTOR - (HANDLE_SIZE * SCALE_FACTOR) / 2,
+              HANDLE_SIZE * SCALE_FACTOR,
+              HANDLE_SIZE * SCALE_FACTOR
             );
           });
 
           ctx.fillRect(
-            sticker.width / 2 - HANDLE_SIZE / 2,
-            -sticker.height / 2 - 20,
-            HANDLE_SIZE,
-            HANDLE_SIZE
+            (sticker.width * SCALE_FACTOR) / 2 - (HANDLE_SIZE * SCALE_FACTOR) / 2,
+            (-sticker.height * SCALE_FACTOR) / 2 - 20 * SCALE_FACTOR,
+            HANDLE_SIZE * SCALE_FACTOR,
+            HANDLE_SIZE * SCALE_FACTOR
           );
           ctx.strokeRect(
-            sticker.width / 2 - HANDLE_SIZE / 2,
-            -sticker.height / 2 - 20,
-            HANDLE_SIZE,
-            HANDLE_SIZE
+            (sticker.width * SCALE_FACTOR) / 2 - (HANDLE_SIZE * SCALE_FACTOR) / 2,
+            (-sticker.height * SCALE_FACTOR) / 2 - 20 * SCALE_FACTOR,
+            HANDLE_SIZE * SCALE_FACTOR,
+            HANDLE_SIZE * SCALE_FACTOR
           );
 
           ctx.fillStyle = "red";
           ctx.beginPath();
           ctx.arc(
-            -sticker.width / 2 + 20,
-            -sticker.height / 2 - 20,
-            10,
+            (-sticker.width * SCALE_FACTOR) / 2 + 20 * SCALE_FACTOR,
+            (-sticker.height * SCALE_FACTOR) / 2 - 20 * SCALE_FACTOR,
+            10 * SCALE_FACTOR,
             0,
             Math.PI * 2
           );
           ctx.fill();
           ctx.fillStyle = "white";
-          ctx.font = "12px Arial";
-          ctx.fillText("X", -sticker.width / 2 + 15, -sticker.height / 2 - 15);
+          ctx.font = `${12 * SCALE_FACTOR}px Arial`;
+          ctx.fillText(
+            "X",
+            (-sticker.width * SCALE_FACTOR) / 2 + 15 * SCALE_FACTOR,
+            (-sticker.height * SCALE_FACTOR) / 2 - 15 * SCALE_FACTOR
+          );
 
           ctx.restore();
         }
@@ -425,160 +455,205 @@ const PhotoStrip = forwardRef<HTMLDivElement, PhotoStripProps>(
       GAP,
       stickers,
       selectedSticker,
+      photos,
     ]);
 
     const getStickerAtPoint = (x: number, y: number, sticker: Sticker) => {
-      const cos = Math.cos((-sticker.rotation * Math.PI) / 180);
-      const sin = Math.sin((-sticker.rotation * Math.PI) / 180);
-      const dx = x - sticker.x;
-      const dy = y - sticker.y;
-      const transformedX = dx * cos - dy * sin;
-      const transformedY = dx * sin + dy * cos;
+      const stickerX = sticker.x * SCALE_FACTOR;
+      const stickerY = sticker.y * SCALE_FACTOR;
+      const width = sticker.width * SCALE_FACTOR;
+      const height = sticker.height * SCALE_FACTOR;
 
-      const left = -sticker.width / 2;
-      const right = sticker.width / 2;
-      const top = -sticker.height / 2;
-      const bottom = sticker.height / 2;
+      const rad = (sticker.rotation * Math.PI) / 180;
+      const cos = Math.cos(-rad);
+      const sin = Math.sin(-rad);
 
-      const inBounds =
-        transformedX >= left &&
-        transformedX <= right &&
-        transformedY >= top &&
-        transformedY <= bottom;
+      const dx = x - stickerX;
+      const dy = y - stickerY;
 
-      const atResizeHandle = [
-        [left, top],
-        [right, top],
-        [right, bottom],
-        [left, bottom],
-      ]
-        .map(([hx, hy], i) => ({
-          index: i,
-          hit:
-            Math.abs(transformedX - hx) < HANDLE_SIZE &&
-            Math.abs(transformedY - hy) < HANDLE_SIZE,
-        }))
-        .find((h) => h.hit);
+      const rotatedX = dx * cos - dy * sin;
+      const rotatedY = dx * sin + dy * cos;
 
-      const atRotateHandle =
-        Math.abs(transformedX - right) < HANDLE_SIZE &&
-        Math.abs(transformedY - (top - 20)) < HANDLE_SIZE;
-
-      const atDeleteHandle =
-        Math.sqrt(
-          (transformedX - (left + 20)) ** 2 + (transformedY - (top - 20)) ** 2
-        ) < 10;
-
-      return { inBounds, atResizeHandle, atRotateHandle, atDeleteHandle };
+      return (
+        rotatedX >= -width / 2 &&
+        rotatedX <= width / 2 &&
+        rotatedY >= -height / 2 &&
+        rotatedY <= height / 2
+      );
     };
 
     const handleMouseDown = (e: React.MouseEvent<HTMLCanvasElement>) => {
-      const canvas = canvasRef.current;
-      if (!canvas) return;
-      const rect = canvas.getBoundingClientRect();
-      const x = e.clientX - rect.left;
-      const y = e.clientY - rect.top;
+      const rect = canvasRef.current?.getBoundingClientRect();
+      if (!rect) return;
 
-      const clickedSticker = stickers.find((sticker) => {
-        const hit = getStickerAtPoint(x, y, sticker);
-        return (
-          hit.inBounds ||
-          hit.atResizeHandle ||
-          hit.atRotateHandle ||
-          hit.atDeleteHandle
-        );
-      });
+      const x = (e.clientX - rect.left) * SCALE_FACTOR;
+      const y = (e.clientY - rect.top) * SCALE_FACTOR;
 
-      if (clickedSticker) {
-        setSelectedSticker(clickedSticker.id);
-        const hit = getStickerAtPoint(x, y, clickedSticker);
+      for (let i = stickers.length - 1; i >= 0; i--) {
+        const sticker = stickers[i];
 
-        if (hit.atDeleteHandle) {
-          setStickers((prev) => prev.filter((s) => s.id !== clickedSticker.id));
-          setSelectedSticker(null);
-        } else if (hit.atResizeHandle) {
-          setDragging("resize");
-          setResizeHandle(hit.atResizeHandle.index);
-        } else if (hit.atRotateHandle) {
-          setDragging("rotate");
-        } else if (hit.inBounds) {
-          setDragging("move");
+        if (selectedSticker === sticker.id) {
+          const stickerX = sticker.x * SCALE_FACTOR;
+          const stickerY = sticker.y * SCALE_FACTOR;
+          const width = sticker.width * SCALE_FACTOR;
+          const height = sticker.height * SCALE_FACTOR;
+          const rad = (sticker.rotation * Math.PI) / 180;
+          const cos = Math.cos(-rad);
+          const sin = Math.sin(-rad);
+
+          const dx = x - stickerX;
+          const dy = y - stickerY;
+          const rotatedX = dx * cos - dy * sin;
+          const rotatedY = dx * sin + dy * cos;
+
+          const handles = [
+            [-width / 2, -height / 2],
+            [width / 2, -height / 2],
+            [width / 2, height / 2],
+            [-width / 2, height / 2],
+          ];
+
+          for (let j = 0; j < handles.length; j++) {
+            const [hx, hy] = handles[j];
+            if (
+              rotatedX >= hx - HANDLE_SIZE * SCALE_FACTOR &&
+              rotatedX <= hx + HANDLE_SIZE * SCALE_FACTOR &&
+              rotatedY >= hy - HANDLE_SIZE * SCALE_FACTOR &&
+              rotatedY <= hy + HANDLE_SIZE * SCALE_FACTOR
+            ) {
+              setDragging("resize");
+              setResizeHandle(j);
+              setStartX(x);
+              setStartY(y);
+              return;
+            }
+          }
+
+          if (
+            rotatedX >= (width / 2) - HANDLE_SIZE * SCALE_FACTOR &&
+            rotatedX <= (width / 2) + HANDLE_SIZE * SCALE_FACTOR &&
+            rotatedY >= (-height / 2) - 20 * SCALE_FACTOR &&
+            rotatedY <= (-height / 2) - 10 * SCALE_FACTOR
+          ) {
+            setDragging("rotate");
+            setStartX(x);
+            setStartY(y);
+            return;
+          }
+
+          if (
+            rotatedX >= (-width / 2) + 10 * SCALE_FACTOR &&
+            rotatedX <= (-width / 2) + 30 * SCALE_FACTOR &&
+            rotatedY >= (-height / 2) - 30 * SCALE_FACTOR &&
+            rotatedY <= (-height / 2) - 10 * SCALE_FACTOR
+          ) {
+            setStickers((prev) => prev.filter((s) => s.id !== sticker.id));
+            setSelectedSticker(null);
+            return;
+          }
         }
 
-        setStartX(x);
-        setStartY(y);
-      } else {
-        setSelectedSticker(null);
+        if (getStickerAtPoint(x, y, sticker)) {
+          setSelectedSticker(sticker.id);
+          setDragging("move");
+          setStartX(x);
+          setStartY(y);
+          return;
+        }
       }
+
+      setSelectedSticker(null);
     };
 
     const handleMouseMove = (e: React.MouseEvent<HTMLCanvasElement>) => {
-      if (dragging && selectedSticker !== null) {
-        const canvas = canvasRef.current;
-        if (!canvas) return;
-        const rect = canvas.getBoundingClientRect();
-        const x = e.clientX - rect.left;
-        const y = e.clientY - rect.top;
+      if (!dragging || selectedSticker === null) return;
 
-        const sticker = stickers.find((s) => s.id === selectedSticker);
-        if (!sticker) return;
+      const rect = canvasRef.current?.getBoundingClientRect();
+      if (!rect) return;
 
-        const dx = x - startX;
-        const dy = y - startY;
+      const x = (e.clientX - rect.left) * SCALE_FACTOR;
+      const y = (e.clientY - rect.top) * SCALE_FACTOR;
 
-        const cos = Math.cos((sticker.rotation * Math.PI) / 180);
-        const sin = Math.sin((sticker.rotation * Math.PI) / 180);
+      setStickers((prev) =>
+        prev.map((sticker) => {
+          if (sticker.id !== selectedSticker) return sticker;
 
-        if (dragging === "move") {
-          const moveX = dx * cos + dy * sin;
-          const moveY = -dx * sin + dy * cos;
-          setStickers((prev) =>
-            prev.map((s) =>
-              s.id === selectedSticker
-                ? { ...s, x: s.x + moveX, y: s.y + moveY }
-                : s
-            )
-          );
-        } else if (dragging === "resize" && resizeHandle !== null) {
-          const handlePoints = [
-            [-1, -1],
-            [1, -1],
-            [1, 1],
-            [-1, 1],
-          ];
-          const [hx] = handlePoints[resizeHandle];
+          if (dragging === "move") {
+            return {
+              ...sticker,
+              x: sticker.x + (x - startX) / SCALE_FACTOR,
+              y: sticker.y + (y - startY) / SCALE_FACTOR,
+            };
+          }
 
-          const localDx = dx * cos + dy * sin;
-          const ratio = sticker.width / sticker.height;
+          if (dragging === "resize" && resizeHandle !== null) {
+            const rad = (sticker.rotation * Math.PI) / 180;
+            const cos = Math.cos(rad);
+            const sin = Math.sin(rad);
 
-          const newWidth = Math.max(20, sticker.width + hx * localDx);
-          const newHeight = newWidth / ratio;
+            const dx = (x - startX) / SCALE_FACTOR;
+            const dy = (y - startY) / SCALE_FACTOR;
 
-          setStickers((prev) =>
-            prev.map((s) =>
-              s.id === selectedSticker
-                ? { ...s, width: newWidth, height: newHeight }
-                : s
-            )
-          );
-        } else if (dragging === "rotate") {
-          const centerX = sticker.x;
-          const centerY = sticker.y;
-          const startAngle = Math.atan2(startY - centerY, startX - centerX);
-          const currentAngle = Math.atan2(y - centerY, x - centerX);
-          const angleDiff = ((currentAngle - startAngle) * 180) / Math.PI;
-          setStickers((prev) =>
-            prev.map((s) =>
-              s.id === selectedSticker
-                ? { ...s, rotation: (s.rotation + angleDiff) % 360 }
-                : s
-            )
-          );
-        }
+            const rotatedDx = dx * cos + dy * sin;
+            const aspectRatio = sticker.width / sticker.height;
 
-        setStartX(x);
-        setStartY(y);
-      }
+            let newWidth = sticker.width;
+            let newHeight = sticker.height;
+            let newX = sticker.x;
+            let newY = sticker.y;
+
+            if (resizeHandle === 0 || resizeHandle === 3) {
+              newWidth -= rotatedDx;
+            } else {
+              newWidth += rotatedDx;
+            }
+
+            newHeight = newWidth / aspectRatio;
+
+            if (newWidth < 20) {
+              newWidth = 20;
+              newHeight = newWidth / aspectRatio;
+            }
+
+            if (resizeHandle === 0 || resizeHandle === 1) {
+              newY += (sticker.height - newHeight) / 2;
+            } else {
+              newY -= (sticker.height - newHeight) / 2;
+            }
+            if (resizeHandle === 1 || resizeHandle === 2) {
+              newX += (sticker.width - newWidth) / 2;
+            } else {
+              newX -= (sticker.width - newWidth) / 2;
+            }
+
+            return {
+              ...sticker,
+              width: newWidth,
+              height: newHeight,
+              x: newX,
+              y: newY,
+            };
+          }
+
+          if (dragging === "rotate") {
+            const centerX = sticker.x * SCALE_FACTOR;
+            const centerY = sticker.y * SCALE_FACTOR;
+            const startAngle = Math.atan2(startY - centerY, startX - centerX);
+            const currentAngle = Math.atan2(y - centerY, x - centerX);
+            const newRotation = sticker.rotation + ((currentAngle - startAngle) * 180) / Math.PI;
+            return {
+              ...sticker,
+              rotation: newRotation,
+            };
+          }
+
+          return sticker;
+        })
+      );
+
+      setStartX(x);
+      setStartY(y);
+      redrawCanvas();
     };
 
     const handleMouseUp = () => {
@@ -590,13 +665,12 @@ const PhotoStrip = forwardRef<HTMLDivElement, PhotoStripProps>(
       <div ref={ref} className="photo-strip">
         <canvas
           ref={canvasRef}
-          width={stripWidth}
-          height={stripHeight}
           onMouseDown={handleMouseDown}
           onMouseMove={handleMouseMove}
           onMouseUp={handleMouseUp}
           style={{
-            border: "1px solid black",
+            width: `${stripWidth / SCALE_FACTOR}px`,
+            height: `${stripHeight / SCALE_FACTOR}px`,
             cursor: dragging ? "grabbing" : "default",
           }}
         />

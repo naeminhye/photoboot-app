@@ -1,7 +1,8 @@
 // components/CameraFeed/index.tsx
-import React, { useRef, useEffect, useState } from "react";
+import React, { useRef, useEffect, useState, useCallback } from "react";
 import Webcam from "react-webcam";
 import GIF from "gif.js";
+import { CAMERA_HEIGHT, CAMERA_WIDTH } from "../../constants";
 
 interface CameraFeedProps {
   onCapture: (photo: string) => void;
@@ -12,6 +13,8 @@ interface CameraFeedProps {
   showCamera: boolean;
   timerEnabled: boolean;
   setIsCreatingGif: (isCreating: boolean) => void;
+  countdownTime: number;
+  isMirrored: boolean;
 }
 
 const CameraFeed: React.FC<CameraFeedProps> = ({
@@ -23,6 +26,8 @@ const CameraFeed: React.FC<CameraFeedProps> = ({
   showCamera,
   timerEnabled,
   setIsCreatingGif,
+  countdownTime,
+  isMirrored,
 }) => {
   const webcamRef = useRef<Webcam>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -45,7 +50,10 @@ const CameraFeed: React.FC<CameraFeedProps> = ({
 
   const capturePhoto = () => {
     if (webcamRef.current && isVideoReady) {
-      const photo = webcamRef.current.getScreenshot();
+      const photo = webcamRef.current.getScreenshot({
+        width: 1920, // Tăng độ phân giải ảnh chụp
+        height: 1440,
+      });
       if (photo) {
         onCapture(photo);
         setPhotoCount((prev) => prev + 1);
@@ -58,10 +66,10 @@ const CameraFeed: React.FC<CameraFeedProps> = ({
       const canvas = canvasRef.current;
       const context = canvas.getContext("2d");
       if (context) {
-        canvas.width = 600;
-        canvas.height = 450;
-        context.drawImage(webcamRef.current.video!, 0, 0, 600, 450);
-        return context.getImageData(0, 0, 600, 450);
+        canvas.width = CAMERA_WIDTH;
+        canvas.height = CAMERA_HEIGHT;
+        context.drawImage(webcamRef.current.video!, 0, 0, CAMERA_WIDTH, CAMERA_HEIGHT);
+        return context.getImageData(0, 0, CAMERA_WIDTH, CAMERA_HEIGHT);
       }
     }
     return null;
@@ -81,11 +89,11 @@ const CameraFeed: React.FC<CameraFeedProps> = ({
       workers: 2,
       quality: 1,
       workerScript: process.env.PUBLIC_URL + "/gif.worker.js",
-      width: 600,
-      height: 450,
+      width: CAMERA_WIDTH,
+      height: CAMERA_HEIGHT,
     });
 
-    gifFrames.current.forEach((frame) => gif.addFrame(frame, { delay: 200 }));
+    gifFrames.current.forEach((frame) => gif.addFrame(frame, { delay: 150 }));
 
     gif.on("finished", (blob) => {
       const gifUrl = URL.createObjectURL(blob);
@@ -102,7 +110,7 @@ const CameraFeed: React.FC<CameraFeedProps> = ({
     for (let i = 0; i < maxPhotos; i++) {
       if (!webcamRef.current) break;
 
-      for (let sec = 10; sec > 0; sec--) {
+      for (let sec = countdownTime; sec > 0; sec--) {
         setCountdown(sec);
         const frame = captureFrame();
         if (frame) {
@@ -118,21 +126,28 @@ const CameraFeed: React.FC<CameraFeedProps> = ({
     createGif();
   };
 
-  const startCountdown = () => {
-    if (photoCount >= maxPhotos || isCapturing) return;
+  const startCountdown = useCallback(() => {
+    if (currentPhotos >= 10) {
+      alert("Maximum preview photo limit (10) reached.");
+      return;
+    }
+
+    if (currentPhotos >= (timerEnabled ? maxPhotos + 4 : 10) || isCapturing) return;
     setIsCapturing(true);
+
+
     gifFrames.current = [];
     runCountdown();
-  };
+  }, []);
 
   const handleMouseDown = () => {
-    if (showCamera && photoCount < maxPhotos && !isCapturing) {
+    if (showCamera && currentPhotos < (timerEnabled ? maxPhotos + 4 : 10) && !isCapturing) {
       setIsHolding(true);
     }
   };
 
   const handleMouseUp = () => {
-    if (showCamera && isHolding && photoCount < maxPhotos && !isCapturing) {
+    if (showCamera && isHolding && currentPhotos < (timerEnabled ? maxPhotos + 4 : 10) && !isCapturing) {
       setIsHolding(false);
       if (timerEnabled) {
         startCountdown();
@@ -149,13 +164,13 @@ const CameraFeed: React.FC<CameraFeedProps> = ({
   };
 
   const handleTouchStart = () => {
-    if (showCamera && photoCount < maxPhotos && !isCapturing) {
+    if (showCamera && currentPhotos < (timerEnabled ? maxPhotos + 4 : 10) && !isCapturing) {
       setIsHolding(true);
     }
   };
 
   const handleTouchEnd = () => {
-    if (showCamera && isHolding && photoCount < maxPhotos && !isCapturing) {
+    if (showCamera && isHolding && currentPhotos < (timerEnabled ? maxPhotos + 4 : 10) && !isCapturing) {
       setIsHolding(false);
       if (timerEnabled) {
         startCountdown();
@@ -175,8 +190,8 @@ const CameraFeed: React.FC<CameraFeedProps> = ({
     <div
       className="camera-feed"
       style={{
-        width: "600px",
-        height: "450px",
+        width: `${CAMERA_WIDTH}px`,
+        height: `${CAMERA_HEIGHT}px`,
         position: "relative",
         background: "#000",
         border: "2px solid #fff",
@@ -188,13 +203,14 @@ const CameraFeed: React.FC<CameraFeedProps> = ({
         <Webcam
           audio={false}
           ref={webcamRef}
-          screenshotFormat="image/png"
-          width={600}
-          height={450}
-          mirrored={true}
+          screenshotFormat="image/jpeg" // Chuyển sang JPEG để tối ưu chất lượng
+          screenshotQuality={1} // Chất lượng tối đa (0-1)
+          width={CAMERA_WIDTH}
+          height={CAMERA_HEIGHT}
+          mirrored={isMirrored}
           videoConstraints={{
-            width: 600,
-            height: 450,
+            width: 1920, // Tăng độ phân giải webcam
+            height: 1440,
             facingMode: "user",
           }}
         />
@@ -226,16 +242,13 @@ const CameraFeed: React.FC<CameraFeedProps> = ({
         onTouchCancel={handleTouchCancel}
         className="shutter-button"
         style={{
-          transform: isHolding ? "scale(0.8)" : "scale(1)",
+          transform: isHolding ? "scale(0.9)" : "scale(1)",
         }}
-        disabled={photoCount >= maxPhotos || isCapturing}
+        disabled={currentPhotos >= 10 || isCapturing}
       >
         <div
           style={{
-            width: "40px",
-            height: "40px",
-            borderRadius: "50%",
-            background: isHolding ? "rgba(255, 255, 255, 0.7)" : "#fff",
+            background: isHolding ? "rgba(255, 255, 255, 0.8)" : "#fff",
             transition: "background 0.2s ease",
           }}
         />

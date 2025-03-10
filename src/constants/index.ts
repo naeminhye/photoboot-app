@@ -96,7 +96,7 @@ export const LAYOUTS: Record<number, Layout> = {
       left: 15,
       bottom: 15,
     },
-  }
+  },
 };
 
 export const SUPPORTED_FORMATS = [".png", ".jpg", ".jpeg", ".svg", ".gif"];
@@ -127,4 +127,12 @@ export interface Sticker {
   width: number;
   height: number;
   rotation: number;
+}
+
+export const CAMERA_WIDTH = 600;
+export const CAMERA_HEIGHT = 450;
+
+export interface Photo {
+  id: string;
+  url: string;
 }
